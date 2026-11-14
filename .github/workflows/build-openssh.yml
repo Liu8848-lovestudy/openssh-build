@@ -1,0 +1,134 @@
+name: Build OpenSSH 10.6p2 for Ubuntu 20.04 amd64
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    container:
+      image: ubuntu:20.04
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Build OpenSSH
+        run: |
+          set -euo pipefail
+
+          echo "Checking architecture..."
+          test "$(dpkg --print-architecture)" = "amd64"
+
+          export DEBIAN_FRONTEND=noninteractive
+
+          # Ubuntu 20.04 已经停止标准支持，使用旧版本仓库地址
+          if [ -f /etc/apt/sources.list ]; then
+            sed -i -E \
+              's|https?://(archive|security).ubuntu.com/ubuntu/?|http://old-releases.ubuntu.com/ubuntu/|g' \
+              /etc/apt/sources.list
+          fi
+
+          apt-get update
+
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            curl \
+            python3 \
+            zlib1g-dev \
+            libssl-dev \
+            libpam0g-dev \
+            libkrb5-dev \
+            libedit-dev
+
+          cd "$GITHUB_WORKSPACE"
+
+          echo "Downloading OpenSSH 10.6p2..."
+          curl -fL \
+            -o openssh-10.6p2.tar.gz \
+            https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-10.6p2.tar.gz
+
+          echo "Verifying OpenSSH source checksum..."
+          python3 - <<'PY'
+          import base64
+          import hashlib
+
+          filename = "openssh-10.6p2.tar.gz"
+          expected_base64 = "muRIcgkM8vBrPPn/FH5/FvMJZxNAdj7S+ZJIOYrinVs="
+
+          with open(filename, "rb") as f:
+              actual_base64 = base64.b64encode(
+                  hashlib.sha256(f.read()).digest()
+              ).decode()
+
+          if actual_base64 != expected_base64:
+              print("Expected:", expected_base64)
+              print("Actual:  ", actual_base64)
+              raise SystemExit("OpenSSH source checksum verification failed")
+
+          print("OpenSSH source checksum verified")
+          PY
+
+          tar -xzf openssh-10.6p2.tar.gz
+          cd openssh-10.6p2
+
+          ./configure \
+            --prefix=/opt/openssh-10.6p2 \
+            --sysconfdir=/etc/ssh \
+            --libexecdir=/opt/openssh-10.6p2/libexec \
+            --with-pam \
+            --with-kerberos5 \
+            --with-libedit \
+            --with-privsep-user=sshd \
+            --with-privsep-path=/var/empty \
+            --with-pid-dir=/run
+
+          make -j"$(nproc)"
+
+          mkdir -p "$GITHUB_WORKSPACE/stage"
+          make install-nokeys \
+            DESTDIR="$GITHUB_WORKSPACE/stage"
+
+          echo "Checking compiled version..."
+          "$GITHUB_WORKSPACE/stage/opt/openssh-10.6p2/bin/ssh" -V 2>&1 || true
+          "$GITHUB_WORKSPACE/stage/opt/openssh-10.6p2/sbin/sshd" -V 2>&1 || true
+
+          mkdir -p "$GITHUB_WORKSPACE/out/root/opt"
+
+          cp -a \
+            "$GITHUB_WORKSPACE/stage/opt/openssh-10.6p2" \
+            "$GITHUB_WORKSPACE/out/root/opt/"
+
+          cat > "$GITHUB_WORKSPACE/out/README.txt" <<'EOF'
+OpenSSH 10.6p2 compiled for Ubuntu 20.04 amd64.
+
+This is an offline tar.gz installation bundle.
+It is installed under:
+/opt/openssh-10.6p2
+
+It is not an Ubuntu .deb package.
+The original Ubuntu openssh packages are not removed.
+EOF
+
+          tar -C "$GITHUB_WORKSPACE/out/root" \
+            -czf "$GITHUB_WORKSPACE/out/openssh-10.6p2-focal-amd64.tar.gz" \
+            opt/openssh-10.6p2
+
+          cd "$GITHUB_WORKSPACE/out"
+
+          sha256sum \
+            openssh-10.6p2-focal-amd64.tar.gz \
+            > openssh-10.6p2-focal-amd64.tar.gz.sha256
+
+          echo "Build output:"
+          ls -lh "$GITHUB_WORKSPACE/out"
+
+      - name: Upload offline package
+        uses: actions/upload-artifact@v7
+        with:
+          name: openssh-10.6p2-focal-amd64
+          path: out/*
+          retention-days: 14
