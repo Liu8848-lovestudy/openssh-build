@@ -27,56 +27,40 @@ jobs:
 
           export DEBIAN_FRONTEND=noninteractive
 
-          if [ -f /etc/apt/sources.list ]; then
-            sed -i -E \
-              's#https?://(archive|security)\.ubuntu\.com/ubuntu/?#http://old-releases.ubuntu.com/ubuntu/#g' \
-              /etc/apt/sources.list
-          fi
+          echo "Configuring Ubuntu 20.04 apt repositories..."
+
+          rm -f /etc/apt/sources.list.d/*.list
+          rm -f /etc/apt/sources.list.d/*.sources
+
+          printf '%s\n' 'deb http://archive.ubuntu.com/ubuntu focal main restricted universe multiverse' 'deb http://archive.ubuntu.com/ubuntu focal-updates main restricted universe multiverse' 'deb http://security.ubuntu.com/ubuntu focal-security main restricted universe multiverse' > /etc/apt/sources.list
 
           echo "Updating apt indexes..."
+
           apt-get update
 
           echo "Installing build dependencies..."
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            curl \
-            zlib1g-dev \
-            libssl-dev \
-            libpam0g-dev \
-            libkrb5-dev \
-            libedit-dev
+
+          apt-get install -y --no-install-recommends build-essential ca-certificates curl zlib1g-dev libssl-dev libpam0g-dev libkrb5-dev libedit-dev
 
           cd "$GITHUB_WORKSPACE"
 
           echo "Downloading OpenSSH 10.6p2..."
 
-          curl -fL \
-            -o openssh-10.6p2.tar.gz \
-            https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-10.6p2.tar.gz
+          curl -fL -o openssh-10.6p2.tar.gz https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-10.6p2.tar.gz
 
           echo "Verifying OpenSSH source checksum..."
 
-          echo "9ae44872090cf2f06b3cf9ff147e7f16f309671340763ed2f99248398ae29d5b  openssh-10.6p2.tar.gz" \
-            | sha256sum -c -
+          echo "9ae44872090cf2f06b3cf9ff147e7f16f309671340763ed2f99248398ae29d5b  openssh-10.6p2.tar.gz" | sha256sum -c -
 
           echo "Extracting source..."
 
           tar -xzf openssh-10.6p2.tar.gz
+
           cd openssh-10.6p2
 
           echo "Configuring OpenSSH..."
 
-          ./configure \
-            --prefix=/opt/openssh-10.6p2 \
-            --sysconfdir=/etc/ssh \
-            --libexecdir=/opt/openssh-10.6p2/libexec \
-            --with-pam \
-            --with-kerberos5 \
-            --with-libedit \
-            --with-privsep-user=sshd \
-            --with-privsep-path=/var/empty \
-            --with-pid-dir=/run
+          ./configure --prefix=/opt/openssh-10.6p2 --sysconfdir=/etc/ssh --libexecdir=/opt/openssh-10.6p2/libexec --with-pam --with-kerberos5 --with-libedit --with-privsep-user=sshd --with-privsep-path=/var/empty --with-pid-dir=/run
 
           echo "Compiling OpenSSH..."
 
@@ -86,45 +70,30 @@ jobs:
 
           mkdir -p "$GITHUB_WORKSPACE/stage"
 
-          make install-nokeys \
-            DESTDIR="$GITHUB_WORKSPACE/stage"
+          make install-nokeys DESTDIR="$GITHUB_WORKSPACE/stage"
 
           echo "Checking compiled version..."
 
           "$GITHUB_WORKSPACE/stage/opt/openssh-10.6p2/bin/ssh" -V 2>&1 || true
+
           "$GITHUB_WORKSPACE/stage/opt/openssh-10.6p2/sbin/sshd" -V 2>&1 || true
 
           echo "Preparing offline package..."
 
           mkdir -p "$GITHUB_WORKSPACE/out/root/opt"
 
-          cp -a \
-            "$GITHUB_WORKSPACE/stage/opt/openssh-10.6p2" \
-            "$GITHUB_WORKSPACE/out/root/opt/"
+          cp -a "$GITHUB_WORKSPACE/stage/opt/openssh-10.6p2" "$GITHUB_WORKSPACE/out/root/opt/"
 
-          printf '%s\n' \
-            'OpenSSH 10.6p2 compiled for Ubuntu 20.04 amd64.' \
-            '' \
-            'This is an offline tar.gz installation bundle.' \
-            'It is installed under:' \
-            '/opt/openssh-10.6p2' \
-            '' \
-            'It is not an Ubuntu .deb package.' \
-            'The original Ubuntu openssh packages are not removed.' \
-            > "$GITHUB_WORKSPACE/out/README.txt"
+          printf '%s\n' 'OpenSSH 10.6p2 compiled for Ubuntu 20.04 amd64.' '' 'This is an offline tar.gz installation bundle.' 'It is installed under:' '/opt/openssh-10.6p2' '' 'It is not an Ubuntu .deb package.' 'The original Ubuntu openssh packages are not removed.' > "$GITHUB_WORKSPACE/out/README.txt"
 
-          tar \
-            -C "$GITHUB_WORKSPACE/out/root" \
-            -czf "$GITHUB_WORKSPACE/out/openssh-10.6p2-focal-amd64.tar.gz" \
-            opt/openssh-10.6p2
+          tar -C "$GITHUB_WORKSPACE/out/root" -czf "$GITHUB_WORKSPACE/out/openssh-10.6p2-focal-amd64.tar.gz" opt/openssh-10.6p2
 
           cd "$GITHUB_WORKSPACE/out"
 
-          sha256sum \
-            openssh-10.6p2-focal-amd64.tar.gz \
-            > openssh-10.6p2-focal-amd64.tar.gz.sha256
+          sha256sum openssh-10.6p2-focal-amd64.tar.gz > openssh-10.6p2-focal-amd64.tar.gz.sha256
 
           echo "Build output:"
+
           ls -lh "$GITHUB_WORKSPACE/out"
 
       - name: Upload offline package
