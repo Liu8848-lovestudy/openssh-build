@@ -28,11 +28,15 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
 
           if [ -f /etc/apt/sources.list ]; then
-            sed -i -E 's|https?://(archive|security).ubuntu.com/ubuntu/?|http://old-releases.ubuntu.com/ubuntu/|g' /etc/apt/sources.list
+            sed -i -E \
+              's#https?://(archive|security)\.ubuntu\.com/ubuntu/?#http://old-releases.ubuntu.com/ubuntu/#g' \
+              /etc/apt/sources.list
           fi
 
+          echo "Updating apt indexes..."
           apt-get update
 
+          echo "Installing build dependencies..."
           apt-get install -y --no-install-recommends \
             build-essential \
             ca-certificates \
@@ -56,8 +60,12 @@ jobs:
           echo "9ae44872090cf2f06b3cf9ff147e7f16f309671340763ed2f99248398ae29d5b  openssh-10.6p2.tar.gz" \
             | sha256sum -c -
 
+          echo "Extracting source..."
+
           tar -xzf openssh-10.6p2.tar.gz
           cd openssh-10.6p2
+
+          echo "Configuring OpenSSH..."
 
           ./configure \
             --prefix=/opt/openssh-10.6p2 \
@@ -70,7 +78,11 @@ jobs:
             --with-privsep-path=/var/empty \
             --with-pid-dir=/run
 
+          echo "Compiling OpenSSH..."
+
           make -j"$(nproc)"
+
+          echo "Installing into staging directory..."
 
           mkdir -p "$GITHUB_WORKSPACE/stage"
 
@@ -81,6 +93,8 @@ jobs:
 
           "$GITHUB_WORKSPACE/stage/opt/openssh-10.6p2/bin/ssh" -V 2>&1 || true
           "$GITHUB_WORKSPACE/stage/opt/openssh-10.6p2/sbin/sshd" -V 2>&1 || true
+
+          echo "Preparing offline package..."
 
           mkdir -p "$GITHUB_WORKSPACE/out/root/opt"
 
